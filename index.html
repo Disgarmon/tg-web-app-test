@@ -1,62 +1,278 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Color Changer</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>MemTraid</title>
     <style>
+        /* Базовые стили */
         body {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
             margin: 0;
-            background-color: #f0f0f0;
-        }
-
-        #circle {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            background-color: white;
-            margin-bottom: 20px;
-            transition: background-color 0.3s ease;
-        }
-
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
-            cursor: pointer;
-            background-color: #007bff;
+            padding: 10px;
+            background: #17212b;
             color: white;
-            border: none;
-            border-radius: 5px;
+            font-family: Arial;
+            height: 100vh;
+            box-sizing: border-box;
         }
-
-        button:hover {
-            background-color: #0056b3;
+        
+        /* Контейнер баланса */
+        .balance-panel {
+            background: #2b3645;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        /* Контейнер графика */
+        #chart-container {
+            height: 50vh;
+            background: #1a2432;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Кнопки */
+        .action-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        button {
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+        }
+        
+        .long-btn {
+            background: #4CAF50;
+        }
+        
+        .short-btn {
+            background: #f44336;
+        }
+        
+        .ad-btn {
+            background: #FFA500;
+            width: 100%;
         }
     </style>
 </head>
 <body>
-    <div id="circle"></div>
-    <button onclick="changeColor()">Сменить цвет</button>
+    <!-- Панель баланса -->
+    <div class="balance-panel">
+        <div style="margin-bottom: 10px;">
+            Balance: <span id="balance">1000</span> memTraidCoins
+        </div>
+        <button class="ad-btn" onclick="watchAd()">Watch Ad (+50)</button>
+    </div>
+
+    <!-- Контейнер для графика -->
+    <div id="chart-container">
+        <canvas id="chart-canvas"></canvas>
+    </div>
+
+    <!-- Кнопки торговли -->
+    <div class="action-buttons">
+        <button class="long-btn" onclick="placeOrder('long')">LONG</button>
+        <button class="short-btn" onclick="placeOrder('short')">SHORT</button>
+    </div>
 
     <script>
-        // Инициализация Telegram Web App
-        Telegram.WebApp.ready();
+        // Инициализация Canvas
+        let canvas, ctx;
+        
+        // Параметры графика
+        const CANDLE_DURATION = 5000; // 5 секунд
+        const CANDLE_WIDTH = 12;      // Ширина свечи
+        const MARGIN = 4;             // Отступ между свечами
+        
+        // Состояние приложения
+        let state = {
+            balance: 1000,
+            lastAdTime: 0,
+            history: [],
+            currentCandle: null,
+            priceData: []
+        };
 
-        function changeColor() {
-            // Генерация случайного цвета
-            const randomColor = '#' + Math.floor(Math.random()*16777215)
-                .toString(16)
-                .padStart(6, '0');
-            
-            // Применение цвета к кругу
-            document.getElementById('circle').style.backgroundColor = randomColor;
+        // Основная функция инициализации
+        function initApp() {
+            try {
+                // Инициализация Canvas
+                canvas = document.getElementById('chart-canvas');
+                ctx = canvas.getContext('2d');
+                
+                // Установка размеров Canvas
+                updateCanvasSize();
+                
+                // Инициализация первой свечи
+                initNewCandle();
+                
+                // Запуск процессов
+                setInterval(updatePrice, 1000);
+                setInterval(closeCandle, CANDLE_DURATION);
+                requestAnimationFrame(drawChart);
+                
+                // Обновление размеров при изменении окна
+                window.addEventListener('resize', updateCanvasSize);
+                
+            } catch (error) {
+                showError('Initialization failed: ' + error.message);
+            }
         }
+
+        // Функция обновления размеров Canvas
+        function updateCanvasSize() {
+            const container = document.getElementById('chart-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        // Инициализация новой свечи
+        function initNewCandle() {
+            state.currentCandle = {
+                open: state.history.length > 0 
+                    ? state.history[state.history.length-1].close 
+                    : 100,
+                high: 0,
+                low: Infinity,
+                close: 0,
+                timestamp: Date.now()
+            };
+        }
+
+        // Обновление цены
+        function updatePrice() {
+            const change = (Math.random() * 0.02) - 0.01; // ±1%
+            const newPrice = state.currentCandle.close === 0 
+                ? state.currentCandle.open 
+                : state.currentCandle.close * (1 + change);
+            
+            state.currentCandle.close = newPrice;
+            state.currentCandle.high = Math.max(state.currentCandle.high, newPrice);
+            state.currentCandle.low = Math.min(state.currentCandle.low, newPrice);
+        }
+
+        // Закрытие свечи
+        function closeCandle() {
+            state.history.push(state.currentCandle);
+            if(state.history.length > 50) state.history.shift();
+            initNewCandle();
+        }
+
+        // Отрисовка графика
+        function drawChart() {
+            try {
+                // Очистка холста
+                ctx.fillStyle = '#1a2432';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Рассчет границ цен
+                const prices = state.history.concat([state.currentCandle])
+                    .flatMap(c => [c.high, c.low]);
+                const maxPrice = Math.max(...prices);
+                const minPrice = Math.min(...prices);
+                const priceRange = maxPrice - minPrice || 1;
+                
+                // Отрисовка сетки
+                ctx.strokeStyle = '#2b3645';
+                ctx.setLineDash([5, 3]);
+                for(let i = 0; i < 5; i++) {
+                    const y = (i * canvas.height/4);
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.stroke();
+                }
+                
+                // Отрисовка свечей
+                const visibleCandles = state.history.concat([state.currentCandle]);
+                visibleCandles.forEach((candle, index) => {
+                    const x = canvas.width - (visibleCandles.length - index) * (CANDLE_WIDTH + MARGIN);
+                    drawCandle(candle, x, minPrice, priceRange);
+                });
+                
+            } catch (error) {
+                showError('Drawing error: ' + error.message);
+            }
+            requestAnimationFrame(drawChart);
+        }
+
+        // Отрисовка одной свечи
+        function drawCandle(candle, x, minPrice, priceRange) {
+            // Фитиль
+            const wickTop = ((candle.high - minPrice)/priceRange) * canvas.height;
+            const wickBottom = ((candle.low - minPrice)/priceRange) * canvas.height;
+            
+            // Тело свечи
+            const bodyTop = ((Math.max(candle.open, candle.close) - minPrice)/priceRange) * canvas.height;
+            const bodyBottom = ((Math.min(candle.open, candle.close) - minPrice)/priceRange) * canvas.height;
+            
+            // Цвет свечи
+            const isBullish = candle.close >= candle.open;
+            ctx.strokeStyle = isBullish ? '#4CAF50' : '#f44336';
+            ctx.fillStyle = isBullish ? '#4CAF5088' : '#f4433688';
+            
+            // Отрисовка фитиля
+            ctx.beginPath();
+            ctx.moveTo(x + CANDLE_WIDTH/2, wickTop);
+            ctx.lineTo(x + CANDLE_WIDTH/2, wickBottom);
+            ctx.stroke();
+            
+            // Отрисовка тела
+            ctx.fillRect(
+                x,
+                bodyTop,
+                CANDLE_WIDTH,
+                bodyBottom - bodyTop
+            );
+        }
+
+        // Покупка/продажа
+        function placeOrder(type) {
+            if(state.balance < 10) {
+                alert('Недостаточно средств!');
+                return;
+            }
+            state.balance -= 10;
+            updateBalanceDisplay();
+            alert('Order placed at ' + state.currentCandle.close.toFixed(2));
+        }
+
+        // Пополнение баланса
+        function watchAd() {
+            if(Date.now() - state.lastAdTime < 30000) {
+                alert('Подождите 30 секунд');
+                return;
+            }
+            state.balance += 50;
+            state.lastAdTime = Date.now();
+            updateBalanceDisplay();
+        }
+
+        // Обновление отображения баланса
+        function updateBalanceDisplay() {
+            document.getElementById('balance').textContent = state.balance.toFixed(2);
+        }
+
+        // Показать ошибку
+        function showError(message) {
+            document.body.innerHTML = `<div style="color:red;padding:20px;">${message}</div>`;
+        }
+
+        // Инициализация при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+            initApp();
+        });
     </script>
 </body>
 </html>
